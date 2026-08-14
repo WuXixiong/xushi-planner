@@ -188,8 +188,32 @@ export async function PATCH(request: Request) {
     const payload = await request.json() as Record<string, unknown>;
     const db = await ensureSchema();
     if (payload.action === "toggleTask") {
-      await db.prepare("UPDATE tasks SET completed = ? WHERE id = ? AND owner_id = ?").bind(payload.completed ? 1 : 0, String(payload.id), owner).run();
-      return Response.json({ ok: true });
+      const id = String(payload.id || "");
+      const complete = payload.completed ? 1 : 0;
+      const descendants: string[] = [];
+      const queue = [id];
+      while (queue.length) {
+        const current = queue.shift() as string;
+        descendants.push(current);
+        const children = await db.prepare("SELECT id FROM tasks WHERE parent_id = ? AND owner_id = ?").bind(current, owner).all<{ id: string }>();
+        children.results.forEach((child) => queue.push(child.id));
+      }
+      await db.prepare(`UPDATE tasks SET completed = ? WHERE id IN (${descendants.map(() => "?").join(",")}) AND owner_id = ?`).bind(complete, ...descendants, owner).run();
+      let currentId: string | null = id;
+      const seen = new Set<string>();
+      while (currentId && !seen.has(currentId)) {
+        seen.add(currentId);
+        const parent = await db.prepare("SELECT parent_id FROM tasks WHERE id = ? AND owner_id = ?").bind(currentId, owner).first<{ parent_id: string | null }>();
+        if (!parent?.parent_id) break;
+        if (complete) {
+          const pending = await db.prepare("SELECT COUNT(*) AS count FROM tasks WHERE parent_id = ? AND owner_id = ? AND completed = 0").bind(parent.parent_id, owner).first<{ count: number }>();
+          if (pending?.count) break;
+        }
+        await db.prepare("UPDATE tasks SET completed = ? WHERE id = ? AND owner_id = ?").bind(complete, parent.parent_id, owner).run();
+        currentId = parent.parent_id;
+      }
+      const rows = await db.prepare("SELECT id, parent_id, title, notes, estimate_minutes, priority, due_date, completed, sort_order FROM tasks WHERE owner_id = ? ORDER BY sort_order, created_at").bind(owner).all<TaskRow>();
+      return Response.json({ tasks: rows.results.map(mapTask) });
     }
     if (payload.action === "updateTask") {
       const id = String(payload.id || "");

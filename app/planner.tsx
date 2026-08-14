@@ -308,11 +308,30 @@ export default function Planner() {
     return () => window.removeEventListener("keydown", onKey);
   }, [modal]);
 
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState !== "visible") return;
+      api("GET")
+        .then((data) => {
+          setTasks((current) => JSON.stringify(current) === JSON.stringify(data.tasks) ? current : data.tasks);
+          setBlocks((current) => JSON.stringify(current) === JSON.stringify(data.blocks) ? current : data.blocks);
+        })
+        .catch(() => {});
+    };
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, []);
+
   const toggleTask = async (task: Task) => {
     const next = task.completed ? 0 : 1;
     setTasks((current) => current.map((item) => item.id === task.id ? { ...item, completed: next } : item));
     try {
-      await api("PATCH", { action: "toggleTask", id: task.id, completed: next });
+      const data = await api("PATCH", { action: "toggleTask", id: task.id, completed: next });
+      if (Array.isArray(data.tasks)) setTasks(data.tasks);
     } catch {
       setTasks((current) => current.map((item) => item.id === task.id ? task : item));
       setToast("状态没有保存成功");

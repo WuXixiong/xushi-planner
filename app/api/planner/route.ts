@@ -75,18 +75,29 @@ async function seed(owner: string) {
     db.prepare("INSERT INTO tasks (id, owner_id, parent_id, title, notes, estimate_minutes, priority, due_date, completed, sort_order) VALUES (?, ?, ?, ?, '', 30, 2, ?, 0, 4)").bind(polish, owner, layout, "检查手机端排版", day(9)),
     db.prepare("INSERT INTO time_blocks (id, owner_id, task_id, kind, date, start_time, end_time, label) VALUES (?, ?, NULL, 'available', ?, '19:00', '21:00', '晚间空余时间')").bind(crypto.randomUUID(), owner, day(0)),
     db.prepare("INSERT INTO time_blocks (id, owner_id, task_id, kind, date, start_time, end_time, label) VALUES (?, ?, ?, 'scheduled', ?, '19:30', '20:20', '')").bind(crypto.randomUUID(), owner, copy, day(0)),
+    db.prepare("INSERT OR IGNORE INTO seed_flags (owner_id) VALUES (?)").bind(owner),
   ]);
+}
+
+// 每个 owner 只播种一次：已有标记或已有数据时不再播种，
+// 这样用户删光任务后不会被示例数据"复活"。
+async function ensureInitialized(db: Awaited<ReturnType<typeof ensureSchema>>, owner: string) {
+  const flag = await db.prepare("SELECT 1 AS found FROM seed_flags WHERE owner_id = ?").bind(owner).first<{ found: number }>();
+  if (flag) return;
+  const existing = await db.prepare("SELECT 1 AS found FROM tasks WHERE owner_id = ? LIMIT 1").bind(owner).first<{ found: number }>();
+  if (existing) {
+    await db.prepare("INSERT OR IGNORE INTO seed_flags (owner_id) VALUES (?)").bind(owner).run();
+    return;
+  }
+  await seed(owner);
 }
 
 export async function GET(request: Request) {
   try {
     const owner = ownerFrom(request);
     const db = await ensureSchema();
-    let taskResult = await db.prepare("SELECT id, parent_id, title, notes, estimate_minutes, priority, due_date, completed, sort_order FROM tasks WHERE owner_id = ? ORDER BY sort_order, created_at").bind(owner).all<TaskRow>();
-    if (!taskResult.results.length) {
-      await seed(owner);
-      taskResult = await db.prepare("SELECT id, parent_id, title, notes, estimate_minutes, priority, due_date, completed, sort_order FROM tasks WHERE owner_id = ? ORDER BY sort_order, created_at").bind(owner).all<TaskRow>();
-    }
+    await ensureInitialized(db, owner);
+    const taskResult = await db.prepare("SELECT id, parent_id, title, notes, estimate_minutes, priority, due_date, completed, sort_order FROM tasks WHERE owner_id = ? ORDER BY sort_order, created_at").bind(owner).all<TaskRow>();
     const blockResult = await db.prepare("SELECT id, task_id, kind, date, start_time, end_time, label FROM time_blocks WHERE owner_id = ? ORDER BY date, start_time").bind(owner).all<BlockRow>();
     return Response.json({ tasks: taskResult.results.map(mapTask), blocks: blockResult.results.map(mapBlock) });
   } catch (error) {

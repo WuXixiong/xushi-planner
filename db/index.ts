@@ -34,6 +34,10 @@ export async function ensureSchema() {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_time_blocks_owner_date ON time_blocks(owner_id, date)"),
+    db.prepare(`CREATE TABLE IF NOT EXISTS seed_flags (
+      owner_id TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`),
   ]);
   await db.prepare("PRAGMA optimize").run();
   return db;

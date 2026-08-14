@@ -16,7 +16,7 @@ if ($Build -or -not (Test-Path "dist\server\index.js")) {
   if ($LASTEXITCODE -ne 0) { Write-Host "✖ 构建失败" -ForegroundColor Red; exit 1 }
 }
 
-Write-Host "→ 启动服务（wrangler dev，端口 3000，监听所有网卡）..." -ForegroundColor Cyan
-Write-Host "  本机: http://localhost:3000"
+Write-Host "→ 启动服务（wrangler dev，端口 8420，监听所有网卡）..." -ForegroundColor Cyan
+Write-Host "  本机: http://localhost:8420"
 Write-Host "  按 Ctrl+C 停止。局域网/Tailscale 访问说明见 README.md"
-npx wrangler dev --port 3000 --ip 0.0.0.0
+npx wrangler dev --port 8420 --ip 0.0.0.0

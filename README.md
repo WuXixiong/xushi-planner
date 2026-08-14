@@ -69,23 +69,23 @@ tests/                   # node --test 单测 + SSR 冒烟
 用 Tailscale 组私有网络，手机和平板无需暴露公网即可访问：
 
 ```powershell
-# 1. 启动常驻服务（生产模式 + 本地 D1，端口 3000，监听所有网卡）
+# 1. 启动常驻服务（生产模式 + 本地 D1，端口 8420，监听所有网卡）
 pwsh scripts/serve.ps1 -Build     # 首次或代码更新后加 -Build 重新构建
-# 开机自启：把 scripts/serve.cmd 的快捷方式放进"启动"文件夹，
-# 或执行 scripts/install-startup.cmd（Windows 启动文件夹: shell:startup）
+# 开机自启：执行一次 scripts/install-startup.cmd（注册到 Windows 启动文件夹）
+# 注意：端口用 8420 而非 3000，避免被 VS Code 等开发工具的端口转发抢占
 
 # 2. PC 加入 Tailscale（已安装时直接 up）
 tailscale up                       # 浏览器登录一次
 
 # 3. 手机装 Tailscale App 并登录同一账号
-# 4. 手机浏览器访问 http://<PC的Tailscale地址>:3000
+# 4. 手机浏览器访问 http://<PC的Tailscale地址>:8420
 tailscale ip -4                    # 查 PC 的 Tailscale 地址
 ```
 
 **可选：HTTPS（启用 PWA 安装体验）**——Tailscale 免费提供 HTTPS 证书：
 
 ```powershell
-tailscale serve --bg 3000          # 将 https://<机器名>.<tailnet>.ts.net 转发到本机 3000
+tailscale serve --bg 8420          # 将 https://<机器名>.<tailnet>.ts.net 转发到本机 8420
 ```
 
 启用 HTTPS 后，手机 Chrome 打开该域名 → 菜单"添加到主屏幕"，序事会以

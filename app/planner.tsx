@@ -60,29 +60,59 @@ function TaskBranch({
   tasks,
   canMoveUp,
   canMoveDown,
+  collapsedIds,
+  dragId,
+  dragParentId,
+  dropTargetId,
   onToggle,
   onAdd,
   onSchedule,
   onEdit,
   onDelete,
   onMove,
+  onToggleCollapse,
+  onDragStart,
+  onDragOver,
+  onDrop,
 }: {
   task: Task;
   depth: number;
   tasks: Task[];
   canMoveUp: boolean;
   canMoveDown: boolean;
+  collapsedIds: Set<string>;
+  dragId: string | null;
+  dragParentId: string | null;
+  dropTargetId: string | null;
   onToggle: (task: Task) => void;
   onAdd: (id: string) => void;
   onSchedule: (id: string) => void;
   onEdit: (task: Task) => void;
   onDelete: (task: Task) => void;
   onMove: (id: string, direction: "up" | "down") => void;
+  onToggleCollapse: (id: string) => void;
+  onDragStart: (id: string) => void;
+  onDragOver: (id: string) => void;
+  onDrop: (targetId: string) => void;
 }) {
   const children = tasks.filter((item) => item.parentId === task.id);
+  const collapsed = collapsedIds.has(task.id);
+  const canDrop = Boolean(dragId) && dragId !== task.id && dragParentId === task.parentId;
   return (
     <>
-      <div className={`task-row ${task.completed ? "done" : ""}`} style={{ marginLeft: Math.min(depth * 20, 60) }}>
+      <div
+        className={`task-row ${task.completed ? "done" : ""} ${dragId === task.id ? "dragging" : ""} ${dropTargetId === task.id ? "drop-target" : ""}`}
+        style={{ marginLeft: Math.min(depth * 20, 60) }}
+        draggable
+        onDragStart={(event) => { event.stopPropagation(); onDragStart(task.id); }}
+        onDragOver={(event) => { if (canDrop) { event.preventDefault(); onDragOver(task.id); } }}
+        onDragLeave={() => onDragOver("")}
+        onDrop={(event) => { event.preventDefault(); if (canDrop) onDrop(task.id); }}
+        onDragEnd={() => onDragStart("")}
+      >
+        {children.length > 0 ? (
+          <button className={`collapse-btn ${collapsed ? "collapsed" : ""}`} onClick={() => onToggleCollapse(task.id)} aria-label={collapsed ? "展开子节点" : "折叠子节点"} title={collapsed ? "展开子节点" : "折叠子节点"}>▾</button>
+        ) : <span className="collapse-btn placeholder" aria-hidden="true" />}
         <input
           className="task-check"
           type="checkbox"
@@ -92,6 +122,7 @@ function TaskBranch({
         />
         <div>
           <div className="task-name">{task.title}</div>
+          {task.notes && <div className="task-notes-inline">{task.notes}</div>}
           <div className="task-tags">
             <span className="tag">{task.estimateMinutes} 分钟</span>
             {task.priority === 1 && <span className="tag priority">优先处理</span>}
@@ -113,7 +144,7 @@ function TaskBranch({
           <button className="row-btn danger" onClick={() => onDelete(task)} aria-label="删除任务" title="删除任务">✕</button>
         </div>
       </div>
-      {children.map((child, index) => (
+      {!collapsed && children.map((child, index) => (
         <TaskBranch
           key={child.id}
           task={child}
@@ -121,12 +152,20 @@ function TaskBranch({
           tasks={tasks}
           canMoveUp={index > 0}
           canMoveDown={index < children.length - 1}
+          collapsedIds={collapsedIds}
+          dragId={dragId}
+          dragParentId={dragParentId}
+          dropTargetId={dropTargetId}
           onToggle={onToggle}
           onAdd={onAdd}
           onSchedule={onSchedule}
           onEdit={onEdit}
           onDelete={onDelete}
           onMove={onMove}
+          onToggleCollapse={onToggleCollapse}
+          onDragStart={onDragStart}
+          onDragOver={onDragOver}
+          onDrop={onDrop}
         />
       ))}
     </>
@@ -143,7 +182,7 @@ function TodayRow({
 }: {
   task: Task;
   path: string[];
-  diff: number;
+  diff: number | null;
   onToggle: (task: Task) => void;
   onSchedule: (id: string) => void;
   onEdit: (task: Task) => void;
@@ -156,7 +195,8 @@ function TodayRow({
         <div className="task-tags">
           {path.length > 0 && <span className="tag">{path.join(" › ")}</span>}
           <span className="tag">{task.estimateMinutes} 分钟</span>
-          {diff < 0 ? <span className="tag overdue-tag">已逾期 {-diff} 天</span> : <span className="tag due-tag">今天截止</span>}
+          {task.priority === 1 && <span className="tag priority">优先处理</span>}
+          {task.dueDate && (diff === null ? <span className="tag">截止 {task.dueDate.slice(5).replace("-", "/")}</span> : diff < 0 ? <span className="tag overdue-tag">已逾期 {-diff} 天</span> : <span className="tag due-tag">今天截止</span>)}
         </div>
       </div>
       <div className="task-row-actions">
@@ -181,6 +221,11 @@ export default function Planner() {
   const [toast, setToast] = useState("");
   const [saving, setSaving] = useState(false);
   const [autoScheduling, setAutoScheduling] = useState(false);
+  const [query, setQuery] = useState("");
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const [undo, setUndo] = useState<{ label: string; run: () => void } | null>(null);
 
   const roots = useMemo(() => tasks.filter((task) => !task.parentId), [tasks]);
   const selectedRoot = roots.find((task) => task.id === selectedRootId) ?? roots[0];
@@ -261,6 +306,12 @@ export default function Planner() {
     return result;
   }, [tasks]);
 
+  const normalizedQuery = query.trim().toLowerCase();
+  const searching = normalizedQuery.length > 0;
+  const searchResults = useMemo(() => searching
+    ? flatTasks.filter(({ task }) => task.title.toLowerCase().includes(normalizedQuery) || task.notes.toLowerCase().includes(normalizedQuery))
+    : [], [flatTasks, searching, normalizedQuery]);
+
   const isOverdue = (task: Task) => Boolean(task.dueDate) && !task.completed && dayDiff(task.dueDate as string) < 0;
   const isDueToday = (task: Task) => Boolean(task.dueDate) && !task.completed && dayDiff(task.dueDate as string) === 0;
   const overdueTasks = useMemo(() => flatTasks.filter(({ task }) => isOverdue(task)).sort((a, b) => (a.task.dueDate! < b.task.dueDate! ? -1 : 1)), [flatTasks]);
@@ -294,10 +345,10 @@ export default function Planner() {
   }, []);
 
   useEffect(() => {
-    if (!toast) return;
-    const timer = window.setTimeout(() => setToast(""), 2600);
+    if (!toast && !undo) return;
+    const timer = window.setTimeout(() => { setToast(""); setUndo(null); }, undo ? 8000 : 2600);
     return () => window.clearTimeout(timer);
-  }, [toast]);
+  }, [toast, undo]);
 
   useEffect(() => {
     if (!modal) return;
@@ -446,13 +497,103 @@ export default function Planner() {
       const data = await api("DELETE", { action: "task", id: task.id });
       const removed = new Set(data.taskIds as string[]);
       const removedBlocks = new Set(data.blockIds as string[]);
+      const snapshotTasks = tasks.filter((item) => removed.has(item.id));
+      const snapshotBlocks = blocks.filter((block) => removedBlocks.has(block.id));
       setTasks((list) => list.filter((item) => !removed.has(item.id)));
       setBlocks((list) => list.filter((block) => !removedBlocks.has(block.id)));
       if (removed.has(selectedRootId)) setSelectedRootId("");
       setToast("任务已删除");
+      setUndo({ label: task.title, run: () => restoreDeleted(snapshotTasks, snapshotBlocks) });
     } catch {
       setToast("没有删除成功");
     }
+  };
+
+  const restoreDeleted = async (snapshotTasks: Task[], snapshotBlocks: Block[]) => {
+    setUndo(null);
+    setToast("");
+    try {
+      const byId = new Map(snapshotTasks.map((item) => [item.id, item]));
+      const idMap = new Map<string, string>();
+      const ordered: Task[] = [];
+      const queue = snapshotTasks.filter((item) => !byId.has(item.parentId ?? "")).map((item) => item.id);
+      const seen = new Set<string>();
+      while (queue.length) {
+        const current = queue.shift() as string;
+        if (seen.has(current)) continue;
+        seen.add(current);
+        const item = byId.get(current);
+        if (item) {
+          ordered.push(item);
+          snapshotTasks.filter((child) => child.parentId === current).forEach((child) => queue.push(child.id));
+        }
+      }
+      for (const item of ordered) {
+        const data = await api("POST", {
+          action: "task",
+          parentId: item.parentId ? (idMap.get(item.parentId) ?? item.parentId) : null,
+          title: item.title,
+          notes: item.notes,
+          estimateMinutes: item.estimateMinutes,
+          priority: item.priority,
+          dueDate: item.dueDate,
+          completed: item.completed,
+        });
+        idMap.set(item.id, data.task.id);
+      }
+      for (const block of snapshotBlocks) {
+        await api("POST", {
+          action: "block",
+          kind: block.kind,
+          taskId: block.taskId ? (idMap.get(block.taskId) ?? null) : null,
+          label: block.label,
+          date: block.date,
+          startTime: block.startTime,
+          endTime: block.endTime,
+        });
+      }
+      const fresh = await api("GET");
+      setTasks(fresh.tasks);
+      setBlocks(fresh.blocks);
+      setToast("任务已恢复");
+    } catch {
+      setToast("恢复失败，请手动重新创建");
+    }
+  };
+
+  const toggleCollapse = (id: string) => {
+    setCollapsedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const draggedTask = dragId ? tasks.find((item) => item.id === dragId) ?? null : null;
+  const dragParentId = draggedTask?.parentId ?? null;
+
+  const reorderTasks = async (parentId: string | null, orderedIds: string[]) => {
+    try {
+      const data = await api("PATCH", { action: "reorderTasks", parentId, orderedIds });
+      if (Array.isArray(data.tasks)) setTasks(data.tasks);
+    } catch {
+      setToast("排序没有保存成功");
+    }
+  };
+
+  const handleDropOn = (targetId: string) => {
+    const dragged = dragId ? tasks.find((item) => item.id === dragId) : undefined;
+    const target = tasks.find((item) => item.id === targetId);
+    if (!dragged || !target || dragged.parentId !== target.parentId) return;
+    const siblings = tasks.filter((item) => item.parentId === dragged.parentId).map((item) => item.id);
+    const from = siblings.indexOf(dragged.id);
+    const to = siblings.indexOf(targetId);
+    if (from < 0 || to < 0) return;
+    siblings.splice(from, 1);
+    siblings.splice(to, 0, dragged.id);
+    setDragId(null);
+    setDropTargetId(null);
+    reorderTasks(dragged.parentId, siblings);
   };
 
   const moveTask = async (id: string, direction: "up" | "down") => {
@@ -487,7 +628,8 @@ export default function Planner() {
             <div><p className="eyebrow">My work</p><h2>我的主任务</h2></div>
             <button className="icon-btn" onClick={() => setModal({ type: "root" })} aria-label="新建主任务">＋</button>
           </div>
-          <button className={`project-card today-card ${view === "today" ? "active" : ""}`} onClick={() => setView("today")}>
+          <input className="search-input" type="search" placeholder="搜索任务…" value={query} onChange={(event) => setQuery(event.target.value)} aria-label="搜索任务" />
+          <button className={`project-card today-card ${view === "today" && !searching ? "active" : ""}`} onClick={() => { setView("today"); setQuery(""); }}>
             <div className="project-title"><i className="project-dot today-dot" />今日待办</div>
             <div className="project-meta"><span>{overdueTasks.length ? <b className="overdue-count">{overdueTasks.length} 逾期</b> : "无逾期"} · {dueTodayTasks.length} 今日截止</span><span>{todayScheduledMinutes ? `${Math.round(todayScheduledMinutes / 60 * 10) / 10}h 已排` : "未安排"}</span></div>
             {todayAvailableMinutes > 0 && <div className="mini-track"><i style={{ width: `${todayCapacity}%`, background: todayCapacity > 85 ? "#e77942" : "#3e7b66" }} /></div>}
@@ -501,7 +643,7 @@ export default function Planner() {
               const pct = nested.length ? Math.round(done / nested.length * 100) : 0;
               const overdue = nested.filter((t) => isOverdue(t)).length;
               return (
-                <button key={root.id} className={`project-card ${selectedRoot?.id === root.id && view === "root" ? "active" : ""}`} onClick={() => { setSelectedRootId(root.id); setView("root"); }}>
+                <button key={root.id} className={`project-card ${selectedRoot?.id === root.id && view === "root" && !searching ? "active" : ""}`} onClick={() => { setSelectedRootId(root.id); setView("root"); setQuery(""); }}>
                   <div className="project-title"><i className="project-dot" style={{ background: index % 2 ? "#4f866f" : "#e77942" }} />{root.title}</div>
                   <div className="project-meta"><span>{nested.length} 个节点{overdue ? <b className="overdue-count"> · {overdue} 逾期</b> : ""}</span><span>{pct}%</span></div>
                   <div className="mini-track"><i style={{ width: `${pct}%` }} /></div>
@@ -513,7 +655,17 @@ export default function Planner() {
         </aside>
 
         <main className="main-panel">
-          {view === "today" ? (
+          {searching ? (
+            <>
+              <div className="breadcrumb">搜索 / {query.trim()}</div>
+              <div className="title-row"><div><h1>搜索结果</h1><p className="task-note">共找到 {searchResults.length} 个匹配任务。</p></div></div>
+              {searchResults.length ? (
+                <div className="task-tree">{searchResults.map(({ task, path }) => (
+                  <TodayRow key={task.id} task={task} path={path} diff={task.dueDate ? dayDiff(task.dueDate) : null} onToggle={toggleTask} onSchedule={openSchedule} onEdit={(task) => setModal({ type: "edit", task })} />
+                ))}</div>
+              ) : <div className="empty">没有找到与「{query.trim()}」相关的任务。</div>}
+            </>
+          ) : view === "today" ? (
             <>
               <div className="breadcrumb">我的任务 / 今日待办</div>
               <div className="title-row">
@@ -582,12 +734,20 @@ export default function Planner() {
                       tasks={tasks}
                       canMoveUp={index > 0}
                       canMoveDown={index < rootChildren.length - 1}
+                      collapsedIds={collapsedIds}
+                      dragId={dragId}
+                      dragParentId={dragParentId}
+                      dropTargetId={dropTargetId}
                       onToggle={toggleTask}
                       onAdd={(id) => setModal({ type: "child", parentId: id })}
                       onSchedule={openSchedule}
                       onEdit={(task) => setModal({ type: "edit", task })}
                       onDelete={deleteTask}
                       onMove={moveTask}
+                      onToggleCollapse={toggleCollapse}
+                      onDragStart={(id) => { setDragId(id); setDropTargetId(null); }}
+                      onDragOver={setDropTargetId}
+                      onDrop={handleDropOn}
                     />
                   )) : <div className="empty">还没有节点。先添加一个可以直接行动的小任务吧。</div>}
                 </div>
@@ -701,7 +861,7 @@ export default function Planner() {
           </form>
         </div>
       )}
-      {toast && <div className="toast">{toast}</div>}
+      {toast && <div className="toast" role="status">{toast}{undo && <button className="toast-btn" onClick={() => { const run = undo.run; setUndo(null); setToast(""); run(); }}>撤销</button>}</div>}
     </div>
   );
 }

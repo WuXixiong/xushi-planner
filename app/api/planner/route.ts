@@ -107,9 +107,10 @@ export async function POST(request: Request) {
       const estimateMinutes = Math.max(5, Number(payload.estimateMinutes) || 30);
       const priority = Math.min(3, Math.max(1, Number(payload.priority) || 2));
       const dueDate = payload.dueDate ? String(payload.dueDate) : null;
+      const completed = payload.completed ? 1 : 0;
       const orderRow = await db.prepare("SELECT COALESCE(MAX(sort_order), 0) + 1 AS next_order FROM tasks WHERE owner_id = ? AND parent_id IS ?").bind(owner, parentId).first<{ next_order: number }>();
-      await db.prepare("INSERT INTO tasks (id, owner_id, parent_id, title, notes, estimate_minutes, priority, due_date, completed, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)").bind(id, owner, parentId, title, notes, estimateMinutes, priority, dueDate, orderRow?.next_order || 1).run();
-      return Response.json({ task: { id, parentId, title, notes, estimateMinutes, priority, dueDate, completed: 0, sortOrder: orderRow?.next_order || 1 } }, { status: 201 });
+      await db.prepare("INSERT INTO tasks (id, owner_id, parent_id, title, notes, estimate_minutes, priority, due_date, completed, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, owner, parentId, title, notes, estimateMinutes, priority, dueDate, completed, orderRow?.next_order || 1).run();
+      return Response.json({ task: { id, parentId, title, notes, estimateMinutes, priority, dueDate, completed, sortOrder: orderRow?.next_order || 1 } }, { status: 201 });
     }
     if (payload.action === "block") {
       const kind = payload.kind === "scheduled" ? "scheduled" : "available";
@@ -228,6 +229,14 @@ export async function PATCH(request: Request) {
       await db.prepare("UPDATE tasks SET title = ?, notes = ?, estimate_minutes = ?, priority = ?, due_date = ? WHERE id = ? AND owner_id = ?").bind(title, notes, estimateMinutes, priority, dueDate, id, owner).run();
       const row = await db.prepare("SELECT id, parent_id, title, notes, estimate_minutes, priority, due_date, completed, sort_order FROM tasks WHERE id = ? AND owner_id = ?").bind(id, owner).first<TaskRow>();
       return Response.json({ task: row ? mapTask(row) : null });
+    }
+    if (payload.action === "reorderTasks") {
+      const parentId = payload.parentId ? String(payload.parentId) : null;
+      const orderedIds = Array.isArray(payload.orderedIds) ? payload.orderedIds.map(String) : [];
+      if (!orderedIds.length) return Response.json({ error: "无效的排序数据" }, { status: 400 });
+      await db.batch(orderedIds.map((taskId, position) => db.prepare("UPDATE tasks SET sort_order = ? WHERE id = ? AND owner_id = ? AND parent_id IS ?").bind(position + 1, taskId, owner, parentId)));
+      const rows = await db.prepare("SELECT id, parent_id, title, notes, estimate_minutes, priority, due_date, completed, sort_order FROM tasks WHERE owner_id = ? ORDER BY sort_order, created_at").bind(owner).all<TaskRow>();
+      return Response.json({ tasks: rows.results.map(mapTask) });
     }
     if (payload.action === "moveTask") {
       const id = String(payload.id || "");

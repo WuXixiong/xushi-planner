@@ -215,6 +215,8 @@ button { cursor: pointer; }
   .task-row-actions { grid-column: 2 / -1; }
   .schedule-panel { padding: 24px 16px; }
   .week-grid { grid-template-columns: repeat(7, 150px); overflow-x: auto; padding-bottom: 6px; }
+  .today-row { grid-template-columns: auto 1fr; }
+  .btn-grid3 { grid-template-columns: 1fr; }
   .form-grid { grid-template-columns: 1fr; }
   .field.full { grid-column: auto; }
 }

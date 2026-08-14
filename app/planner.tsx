@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 type Task = {
   id: string;
@@ -57,7 +57,7 @@ const WEEKDAYS = "一二三四五六日";
 function TaskBranch({
   task,
   depth,
-  tasks,
+  childrenOf,
   canMoveUp,
   canMoveDown,
   collapsedIds,
@@ -77,7 +77,7 @@ function TaskBranch({
 }: {
   task: Task;
   depth: number;
-  tasks: Task[];
+  childrenOf: (parentId: string | null) => Task[];
   canMoveUp: boolean;
   canMoveDown: boolean;
   collapsedIds: Set<string>;
@@ -95,7 +95,7 @@ function TaskBranch({
   onDragOver: (id: string) => void;
   onDrop: (targetId: string) => void;
 }) {
-  const children = tasks.filter((item) => item.parentId === task.id);
+  const children = childrenOf(task.id);
   const collapsed = collapsedIds.has(task.id);
   const canDrop = Boolean(dragId) && dragId !== task.id && dragParentId === task.parentId;
   return (
@@ -149,7 +149,7 @@ function TaskBranch({
           key={child.id}
           task={child}
           depth={depth + 1}
-          tasks={tasks}
+          childrenOf={childrenOf}
           canMoveUp={index > 0}
           canMoveDown={index < children.length - 1}
           collapsedIds={collapsedIds}
@@ -230,20 +230,32 @@ export default function Planner() {
   const roots = useMemo(() => tasks.filter((task) => !task.parentId), [tasks]);
   const selectedRoot = roots.find((task) => task.id === selectedRootId) ?? roots[0];
 
+  const childrenMap = useMemo(() => {
+    const map = new Map<string | null, Task[]>();
+    tasks.forEach((task) => {
+      const key = task.parentId;
+      const list = map.get(key) ?? [];
+      list.push(task);
+      map.set(key, list);
+    });
+    return map;
+  }, [tasks]);
+  const childrenOf = useCallback((parentId: string | null) => childrenMap.get(parentId) ?? [], [childrenMap]);
+
   const descendants = useMemo(() => {
     if (!selectedRoot) return [];
     const result: Task[] = [];
     const walk = (parentId: string) => {
-      tasks.filter((task) => task.parentId === parentId).forEach((task) => {
+      childrenOf(parentId).forEach((task) => {
         result.push(task);
         walk(task.id);
       });
     };
     walk(selectedRoot.id);
     return result;
-  }, [selectedRoot, tasks]);
+  }, [selectedRoot, childrenOf]);
 
-  const rootChildren = selectedRoot ? tasks.filter((task) => task.parentId === selectedRoot.id) : [];
+  const rootChildren = selectedRoot ? childrenOf(selectedRoot.id) : [];
   const completedCount = descendants.filter((task) => task.completed).length;
   const progress = descendants.length ? Math.round((completedCount / descendants.length) * 100) : 0;
   const estimate = descendants.reduce((sum, task) => sum + (task.completed ? 0 : task.estimateMinutes), 0);
@@ -285,26 +297,26 @@ export default function Planner() {
   const schedulableTasks = useMemo(() => {
     const depthOf = new Map<string, number>();
     const walk = (parentId: string | null, depth: number) => {
-      tasks.filter((task) => task.parentId === parentId).forEach((task) => {
+      childrenOf(parentId).forEach((task) => {
         depthOf.set(task.id, depth);
         walk(task.id, depth + 1);
       });
     };
     walk(null, 0);
     return tasks.filter((task) => !task.completed).map((task) => ({ task, depth: depthOf.get(task.id) ?? 0 }));
-  }, [tasks]);
+  }, [tasks, childrenOf]);
 
   const flatTasks = useMemo(() => {
     const result: { task: Task; path: string[] }[] = [];
     const walk = (parentId: string | null, path: string[]) => {
-      tasks.filter((task) => task.parentId === parentId).forEach((task) => {
+      childrenOf(parentId).forEach((task) => {
         result.push({ task, path });
         walk(task.id, [...path, task.title]);
       });
     };
     walk(null, []);
     return result;
-  }, [tasks]);
+  }, [childrenOf]);
 
   const normalizedQuery = query.trim().toLowerCase();
   const searching = normalizedQuery.length > 0;
@@ -352,12 +364,31 @@ export default function Planner() {
 
   useEffect(() => {
     if (!modal) return;
+    const panel = document.querySelector(".modal") as HTMLElement | null;
+    const focusables = panel ? Array.from(panel.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')) : [];
+    focusables[0]?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setModal(null);
+      if (event.key === "Escape") { setModal(null); return; }
+      if (event.key !== "Tab" || !focusables.length) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [modal]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "n" || modal || saving) return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) return;
+      setModal({ type: "root" });
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [modal]);
+  }, [modal, saving]);
 
   useEffect(() => {
     const refresh = () => {
@@ -637,7 +668,7 @@ export default function Planner() {
           <div className="project-list">
             {roots.map((root, index) => {
               const nested: Task[] = [];
-              const walk = (id: string) => tasks.filter((t) => t.parentId === id).forEach((t) => { nested.push(t); walk(t.id); });
+              const walk = (id: string) => childrenOf(id).forEach((t) => { nested.push(t); walk(t.id); });
               walk(root.id);
               const done = nested.filter((t) => t.completed).length;
               const pct = nested.length ? Math.round(done / nested.length * 100) : 0;
@@ -731,7 +762,7 @@ export default function Planner() {
                       key={task.id}
                       task={task}
                       depth={0}
-                      tasks={tasks}
+                      childrenOf={childrenOf}
                       canMoveUp={index > 0}
                       canMoveDown={index < rootChildren.length - 1}
                       collapsedIds={collapsedIds}
@@ -828,7 +859,7 @@ export default function Planner() {
       {modal && (modal.type === "root" || modal.type === "child" || modal.type === "edit") && (
         // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- 点击遮罩空白处关闭弹窗
         <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setModal(null)}>
-          <form key={modal.type === "edit" ? `edit-${modal.task.id}` : modal.type} className="modal" onSubmit={submitTask}>
+          <form key={modal.type === "edit" ? `edit-${modal.task.id}` : modal.type} className="modal" role="dialog" aria-modal="true" aria-label={modal.type === "edit" ? "编辑任务" : modal.type === "root" ? "新建主任务" : "添加任务节点"} onSubmit={submitTask}>
             <h3>{modal.type === "edit" ? "编辑任务" : modal.type === "root" ? "新建主任务" : "添加任务节点"}</h3>
             <p>{modal.type === "edit" ? "修改任务信息，保存后立即生效。" : modal.type === "root" ? "先定义你想完成的结果，之后再逐层拆解。" : "写成一个具体、可以直接开始的行动。"}</p>
             <div className="form-grid">
@@ -846,7 +877,7 @@ export default function Planner() {
       {modal?.type === "block" && (
         // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- 点击遮罩空白处关闭弹窗
         <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setModal(null)}>
-          <form className="modal" onSubmit={submitBlock}>
+          <form className="modal" role="dialog" aria-modal="true" aria-label={modal.kind === "available" ? "记录空余时间" : "手动安排任务"} onSubmit={submitBlock}>
             <h3>{modal.kind === "available" ? "记录空余时间" : "手动安排任务"}</h3>
             <p>{modal.kind === "available" ? "先把真正能支配的时间记下来，之后再决定做什么。" : "由你选择任务和时段，系统会提示时段冲突。"}</p>
             <div className="form-grid">

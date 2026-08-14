@@ -64,6 +64,36 @@ tests/                   # node --test 单测 + SSR 冒烟
 身份通过请求头 `oai-authenticated-user-id` 区分（vinext 平台注入），未登录访客
 回退到 `local-demo`。
 
+## 局域网 / Tailscale 访问（手机联动）
+
+用 Tailscale 组私有网络，手机和平板无需暴露公网即可访问：
+
+```powershell
+# 1. 启动常驻服务（生产模式 + 本地 D1，端口 3000，监听所有网卡）
+pwsh scripts/serve.ps1 -Build     # 首次或代码更新后加 -Build 重新构建
+# 开机自启：把 scripts/serve.cmd 的快捷方式放进"启动"文件夹，
+# 或执行 scripts/install-startup.cmd（Windows 启动文件夹: shell:startup）
+
+# 2. PC 加入 Tailscale（已安装时直接 up）
+tailscale up                       # 浏览器登录一次
+
+# 3. 手机装 Tailscale App 并登录同一账号
+# 4. 手机浏览器访问 http://<PC的Tailscale地址>:3000
+tailscale ip -4                    # 查 PC 的 Tailscale 地址
+```
+
+**可选：HTTPS（启用 PWA 安装体验）**——Tailscale 免费提供 HTTPS 证书：
+
+```powershell
+tailscale serve --bg 3000          # 将 https://<机器名>.<tailnet>.ts.net 转发到本机 3000
+```
+
+启用 HTTPS 后，手机 Chrome 打开该域名 → 菜单"添加到主屏幕"，序事会以
+全屏 App 形态出现（独立图标，PWA 支持已内置：`public/manifest.json` + `sw.js`）。
+
+> 注意：常驻服务依赖这台电脑开机且登录；手机与电脑需在同一 Tailnet。
+> 服务是 `wrangler dev` 进程，关闭窗口即停止；数据保存在本地 `.wrangler/state`。
+
 ## 发布到 GitHub
 
 ```bash

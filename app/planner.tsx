@@ -386,6 +386,12 @@ export default function Planner() {
     };
   }, []);
 
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    }
+  }, []);
+
   const toggleTask = async (task: Task) => {
     const next = task.completed ? 0 : 1;
     setTasks((current) => current.map((item) => item.id === task.id ? { ...item, completed: next } : item));

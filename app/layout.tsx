@@ -21,7 +21,10 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title: "序事 · 待办与时间规划",
     description: "把大任务拆成清晰节点，再亲手放进自己的空余时间。",
-    icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
+    manifest: "/manifest.json",
+    themeColor: "#275f4d",
+    appleWebApp: { capable: true, title: "序事", statusBarStyle: "default" },
+    icons: { icon: "/favicon.svg", shortcut: "/favicon.svg", apple: "/icon-192.png" },
     openGraph: {
       title: "序事 · 待办与时间规划",
       description: "把复杂的事，一步步做完。",

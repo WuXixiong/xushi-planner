@@ -64,6 +64,21 @@ tests/                   # node --test 单测 + SSR 冒烟
 身份通过请求头 `oai-authenticated-user-id` 区分（vinext 平台注入），未登录访客
 回退到 `local-demo`。
 
+## 发布到 GitHub
+
+```bash
+# 方式一：gh CLI（推荐）
+winget install GitHub.cli
+gh auth login
+pwsh scripts/push-github.ps1
+
+# 方式二：Personal Access Token（需 repo 权限）
+# 设置环境变量 GITHUB_TOKEN 后运行：
+pwsh scripts/push-github.ps1
+```
+
+脚本会创建私有仓库 `xushi-planner` 并推送 `main` 分支。
+
 ## 部署
 
 本项目面向 vinext / Cloudflare Sites 平台：

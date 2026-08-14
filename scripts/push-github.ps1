@@ -12,17 +12,27 @@ function Fail($msg) {
   exit 1
 }
 
-$hasGh = Get-Command gh -ErrorAction SilentlyContinue
+# 发现 gh：先找 PATH，再找常见安装位置（PATH 未刷新时也能用）
+$gh = Get-Command gh -ErrorAction SilentlyContinue
+if (-not $gh) {
+  foreach ($candidate in @(
+    "$env:ProgramFiles\GitHub CLI\gh.exe",
+    "$env:LOCALAPPDATA\Programs\GitHub CLI\gh.exe"
+  )) {
+    if (Test-Path $candidate) { $gh = $candidate; break }
+  }
+}
 
-if ($hasGh) {
-  $status = gh auth status 2>&1 | Out-String
+if ($gh) {
+  $ghCmd = if ($gh -is [string]) { $gh } else { $gh.Source }
+  $status = & $ghCmd auth status 2>&1 | Out-String
   if ($status -match "Logged in to github.com") {
     Write-Host "→ 使用 gh CLI 创建仓库并推送..." -ForegroundColor Cyan
-    gh repo create $RepoName "--$Visibility" --source . --remote origin --push
+    & $ghCmd repo create $RepoName "--$Visibility" --source . --remote origin --push
     if ($LASTEXITCODE -ne 0) {
       Fail "创建失败。若提示仓库已存在，请先删除同名仓库或修改 scripts/push-github.ps1 中的 RepoName"
     }
-    $user = (gh api user -q .login).Trim()
+    $user = (& $ghCmd api user -q .login).Trim()
     Write-Host ""
     Write-Host "✔ 完成！仓库地址: https://github.com/$user/$RepoName" -ForegroundColor Green
     exit 0

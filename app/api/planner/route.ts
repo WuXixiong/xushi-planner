@@ -1,4 +1,5 @@
 import { ensureSchema } from "../../../db";
+import { planAutoSchedule } from "../../planner-utils";
 
 type TaskRow = {
   id: string;
@@ -138,44 +139,20 @@ export async function POST(request: Request) {
       const scheduledRows = blockRows.results.filter((row) => row.kind === "scheduled");
       const taskRows = await db.prepare("SELECT id, estimate_minutes, priority, due_date FROM tasks WHERE owner_id = ? AND completed = 0 AND id NOT IN (SELECT task_id FROM time_blocks WHERE owner_id = ? AND kind = 'scheduled' AND task_id IS NOT NULL) ORDER BY priority ASC, (due_date IS NULL) ASC, due_date ASC, estimate_minutes DESC").bind(owner, owner).all<TaskRow>();
       if (!taskRows.results.length) return Response.json({ blocks: [], scheduled: 0, skipped: 0 });
-      const toMinutes = (time: string) => { const [h, m] = time.split(":").map(Number); return h * 60 + m; };
-      const toTime = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
-      const segments: { start: number; end: number }[] = [];
-      for (const slot of availableRows) {
-        let cursor = toMinutes(slot.start_time);
-        const end = toMinutes(slot.end_time);
-        const overlaps = scheduledRows
-          .filter((row) => toMinutes(row.start_time) < end && toMinutes(row.end_time) > cursor)
-          .sort((a, b) => toMinutes(a.start_time) - toMinutes(b.start_time));
-        for (const row of overlaps) {
-          const overlapStart = Math.max(cursor, toMinutes(row.start_time));
-          const overlapEnd = Math.min(end, toMinutes(row.end_time));
-          if (overlapStart > cursor) segments.push({ start: cursor, end: overlapStart });
-          cursor = Math.max(cursor, overlapEnd);
-        }
-        if (cursor < end) segments.push({ start: cursor, end });
-      }
-      segments.sort((a, b) => a.start - b.start);
+      const plan = planAutoSchedule(
+        availableRows.map((row) => ({ startTime: row.start_time, endTime: row.end_time })),
+        scheduledRows.map((row) => ({ startTime: row.start_time, endTime: row.end_time })),
+        taskRows.results.map((row) => ({ id: row.id, estimateMinutes: row.estimate_minutes })),
+      );
       const created: { id: string; taskId: string; kind: "scheduled"; date: string; startTime: string; endTime: string; label: string }[] = [];
       const inserts: ReturnType<typeof db.prepare>[] = [];
-      for (const task of taskRows.results) {
-        const estimate = Math.max(5, task.estimate_minutes);
-        let bestIndex = -1;
-        let bestCapacity = Infinity;
-        for (let index = 0; index < segments.length; index++) {
-          const capacity = segments[index].end - segments[index].start;
-          if (capacity >= estimate && capacity < bestCapacity) { bestIndex = index; bestCapacity = capacity; }
-        }
-        if (bestIndex < 0) continue;
+      for (const placement of plan.placements) {
         const id = crypto.randomUUID();
-        const startTime = toTime(segments[bestIndex].start);
-        const endTime = toTime(segments[bestIndex].start + estimate);
-        inserts.push(db.prepare("INSERT INTO time_blocks (id, owner_id, task_id, kind, date, start_time, end_time, label) VALUES (?, ?, ?, 'scheduled', ?, ?, ?, '')").bind(id, owner, task.id, date, startTime, endTime));
-        created.push({ id, taskId: task.id, kind: "scheduled", date, startTime, endTime, label: "" });
-        segments[bestIndex].start += estimate;
+        inserts.push(db.prepare("INSERT INTO time_blocks (id, owner_id, task_id, kind, date, start_time, end_time, label) VALUES (?, ?, ?, 'scheduled', ?, ?, ?, '')").bind(id, owner, placement.taskId, date, placement.startTime, placement.endTime));
+        created.push({ id, taskId: placement.taskId, kind: "scheduled", date, startTime: placement.startTime, endTime: placement.endTime, label: "" });
       }
       if (inserts.length) await db.batch(inserts);
-      return Response.json({ blocks: created, scheduled: created.length, skipped: taskRows.results.length - created.length }, { status: 201 });
+      return Response.json({ blocks: created, scheduled: created.length, skipped: plan.skipped }, { status: 201 });
     }
     return Response.json({ error: "未知操作" }, { status: 400 });
   } catch (error) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { WEEKDAYS, dateKey, dayDiff, minutesBetween } from "./planner-utils";
 
 type Task = {
   id: string;
@@ -30,29 +31,6 @@ type ModalState =
   | { type: "edit"; task: Task }
   | { type: "block"; kind: "available" | "scheduled" }
   | null;
-
-const minutesBetween = (start: string, end: string) => {
-  const [sh, sm] = start.split(":").map(Number);
-  const [eh, em] = end.split(":").map(Number);
-  return Math.max(0, eh * 60 + em - sh * 60 - sm);
-};
-
-const dateKey = (date: Date) => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
-
-const dayDiff = (dateStr: string) => {
-  const [year, month, day] = dateStr.split("-").map(Number);
-  const target = Date.UTC(year, month - 1, day);
-  const now = new Date();
-  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
-  return Math.round((target - today) / 86400000);
-};
-
-const WEEKDAYS = "一二三四五六日";
 
 function TaskBranch({
   task,

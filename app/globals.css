@@ -70,7 +70,7 @@ button { cursor: pointer; }
 
 .main-panel { padding: 32px clamp(24px, 3vw, 48px); overflow: hidden; }
 .breadcrumb { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
-.title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
 .title-row h1 { font-size: clamp(26px, 3vw, 38px); letter-spacing: -.045em; margin: 0; font-weight: 770; }
 .task-note { color: var(--muted); line-height: 1.6; max-width: 640px; margin: 10px 0 0; font-size: 14px; }
 .status-pill { flex: 0 0 auto; padding: 8px 12px; border-radius: 999px; background: var(--orange-soft); color: #b45d31; font-size: 12px; font-weight: 700; }
@@ -168,6 +168,8 @@ button { cursor: pointer; }
 .status-pill { border: 0; cursor: pointer; transition: .2s; }
 .status-pill:hover { filter: brightness(.96); }
 .status-pill.pill-done { background: var(--mint); color: var(--green); }
+.title-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.icon-btn.danger:hover { background: #fdeee8; color: #c04f2b; border-color: #f0c9ba; }
 
 .row-btn.danger:hover { background: #fdeee8; color: #c04f2b; }
 .row-btn:disabled { opacity: .35; cursor: default; }

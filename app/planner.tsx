@@ -726,9 +726,13 @@ export default function Planner() {
               <div className="breadcrumb">我的任务 / {selectedRoot.title}</div>
               <div className="title-row">
                 <div><h1>{selectedRoot.title}</h1><p className="task-note">{selectedRoot.notes || "把目标拆成下一步清晰、用时可估算的行动节点。"}</p></div>
-                <button className={`status-pill ${selectedRoot.completed ? "pill-done" : ""}`} onClick={() => toggleTask(selectedRoot)} aria-label={selectedRoot.completed ? "标记为进行中" : "标记为已完成"} title={selectedRoot.completed ? "点击恢复为进行中" : "点击标记主任务已完成"}>
-                  {selectedRoot.completed ? "已完成" : progress === 100 ? "待确认" : "进行中"}
-                </button>
+                <div className="title-actions">
+                  <button className={`status-pill ${selectedRoot.completed ? "pill-done" : ""}`} onClick={() => toggleTask(selectedRoot)} aria-label={selectedRoot.completed ? "标记为进行中" : "标记为已完成"} title={selectedRoot.completed ? "点击恢复为进行中" : "点击标记主任务已完成"}>
+                    {selectedRoot.completed ? "已完成" : progress === 100 ? "待确认" : "进行中"}
+                  </button>
+                  <button className="icon-btn" onClick={() => setModal({ type: "edit", task: selectedRoot })} aria-label="编辑主任务" title="编辑主任务">✎</button>
+                  <button className="icon-btn danger" onClick={() => deleteTask(selectedRoot)} aria-label="删除主任务" title="删除主任务">✕</button>
+                </div>
               </div>
               <div className="summary-card">
                 <div className="summary-progress"><small>整体进度</small><div className="progress-track"><i style={{ width: `${progress}%` }} /></div><p>{completedCount} / {descendants.length} 个节点完成</p></div>
